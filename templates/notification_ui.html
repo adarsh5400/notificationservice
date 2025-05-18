@@ -89,7 +89,7 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     // -------- CONFIG --------
-    const API = "https://notification-services-183t.onrender.com";
+    const API = window.location.origin;   // ← works locally *and* when deployed
 
     // show/hide subject field
     document.getElementById("typeField").addEventListener("change", e => {
