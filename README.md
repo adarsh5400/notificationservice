@@ -16,10 +16,10 @@ Hosting: Deployable on platforms like Render
 
 File Structure:-
 notificationservice/
-│
-├── app.py                  # Flask backend
-├── /templates/notification_ui.html    # Frontend UI
-├── requirements.txt        # Python dependencies
+
+ app.py                  # Flask backend
+ /templates/notification_ui.html    # Frontend UI
+ requirements.txt        # Python dependencies
 
 Setup Instructions:-
 Prerequisites
