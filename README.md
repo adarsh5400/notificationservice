@@ -38,7 +38,7 @@ Connect my GitHub repo.
 Set the build and start commands:
 Build command: pip install -r requirements.txt
 Start command: guicorn app.py
-Once deployed, i noted the Render URL (https://notification-services-183t.onrender.com/).
+Deploy
 
 Update Frontend to Use Render API:-
 In notification_ui.html, update the API variable:
