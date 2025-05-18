@@ -1,69 +1,96 @@
-from flask import Flask, render_template, request, jsonify
-from flask_cors import CORS
+"""
+Notification Service – Flask API (queue-based)
+----------------------------------------------
+• POST  /notifications              → enqueue a notification task
+• GET   /users/<user_id>/notifications  → list in-memory notifications
+"""
 import os
 from datetime import datetime
-import uuid
-import random
-import time
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+
+# -------------------------------------------------------------------------------------------------
+#  Celery broker / queue
+# -------------------------------------------------------------------------------------------------
+from celery_app import celery                    # celery_app.py creates the Celery instance
+from tasks import send_notification              # our task with retry logic
+# -------------------------------------------------------------------------------------------------
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)                                        # allow any origin (adjust for prod)
 
-# In-memory storage
-notifications = []
-
-VALID_TYPES = {"email", "sms", "in-app"}
-MAX_ATTEMPTS = 3
-
-def send_with_retry(notification):
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        success = random.random() > 0.2
-        if success:
-            notification["status"] = "sent"
-            notification["attempt_count"] = attempt
-            break
-        notification["status"] = "failed"
-        notification["attempt_count"] = attempt
-        time.sleep(0.5)
-    return notification["status"]
+# --------------------------- simple in-memory store (for demo only) ------------------------------
+notifications = []                               # replace with DB in production
+VALID_TYPES   = {"email", "sms", "in-app"}
+# -------------------------------------------------------------------------------------------------
 
 @app.route("/")
-def home():
+def root():
+    """Serve the front-end UI (notification_ui.html in templates/)."""
     return render_template("notification_ui.html")
 
-@app.route("/notifications", methods=["POST"])
-def create_notification():
-    data = request.get_json(force=True)
-    user_id   = data.get("user_id")
-    notif_type = data.get("type")
-    message   = data.get("message")
-    subject   = data.get("subject", "")
 
-    if not user_id or not notif_type or not message:
-        return jsonify(error="Missing user_id, type, or message"), 400
-    if notif_type not in VALID_TYPES:
+# -------------------------------------------------------------------------------------------------
+#  API: enqueue a notification
+# -------------------------------------------------------------------------------------------------
+@app.route("/notifications", methods=["POST"])
+def enqueue_notification():
+    """
+    JSON body:
+    {
+      "user_id": "1",
+      "type": "email" | "sms" | "in-app",
+      "subject": "optional subject",
+      "message": "hello!"
+    }
+    """
+    data = request.get_json(force=True) or {}
+    missing = [k for k in ("user_id", "type", "message") if not data.get(k)]
+    if missing:
+        return jsonify(error=f"Missing field(s): {', '.join(missing)}"), 400
+    if data["type"] not in VALID_TYPES:
         return jsonify(error="Invalid notification type"), 400
 
-    notification = {
-        "id": str(uuid.uuid4()),
-        "user_id": str(user_id),
-        "type": notif_type,
-        "subject": subject,
-        "message": message,
-        "status": "queued",
+    # store a lightweight record locally (demo only)
+    record = {
+        "id"           : len(notifications) + 1,
+        "user_id"      : str(data["user_id"]),
+        "type"         : data["type"],
+        "subject"      : data.get("subject"),
+        "message"      : data["message"],
+        "status"       : "queued",
         "attempt_count": 0,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp"    : datetime.utcnow().isoformat()
     }
+    notifications.append(record)
 
-    send_with_retry(notification)
-    notifications.append(notification)
-    return jsonify(message="Notification processed", data=notification), 201
+    # fire-and-forget Celery task
+    task = send_notification.delay(record)       # pass the whole record (or just its ID)
 
+    return (
+        jsonify(
+            message  = "Notification queued",
+            task_id  = task.id,
+            record   = record
+        ),
+        202
+    )
+
+
+# -------------------------------------------------------------------------------------------------
+#  API: list user notifications
+# -------------------------------------------------------------------------------------------------
 @app.route("/users/<user_id>/notifications", methods=["GET"])
 def list_notifications(user_id):
     user_notifs = [n for n in notifications if n["user_id"] == str(user_id)]
     return jsonify(notifications=user_notifs)
 
+
+# -------------------------------------------------------------------------------------------------
+#  Development entry-point
+#  (Render/Gunicorn will ignore this and use its own start command)
+# -------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=True)
+
